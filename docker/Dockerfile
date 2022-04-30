@@ -34,9 +34,11 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install openssl 
 COPY --from=builder /risingwave/target/release/frontend-v2 /risingwave/bin/frontend-v2
 COPY --from=builder /risingwave/target/release/compute-node /risingwave/bin/compute-node	
 COPY --from=builder /risingwave/target/release/meta-node /risingwave/bin/meta-node
+COPY --from=builder /risingwave/target/release/compactor /risingwave/bin/compactor
 
 # Expose the necessary ports for the services:
 # - 4566 is for frontend.
 # - 5687 is for compute-node.
 # - 5690 is for meta-node.
-EXPOSE 4566 5687 5690
+# - 6660 is for compactor.
+EXPOSE 4566 5687 5690 6660

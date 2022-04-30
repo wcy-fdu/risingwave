@@ -41,6 +41,17 @@ services:
       - ./src/config:/risingwave/config
     depends_on:
       - metanode
+  compactor:
+    container_name: compactor_container
+    image: ghcr.io/singularity-data/risingwave:latest
+    command: /risingwave/bin/compactor --config-path /risingwave/config/risingwave.toml --client-address compactor:6660 --host 0.0.0.0:6660 --prometheus-listener-addr 0.0.0.0:1260 --metrics-level 1 --state-store hummock+minio://hummock:12345678@minio:9000/hummock001 --meta-address http://metanode:5690
+    expose:
+      - "6660"
+      - "1260"
+    volumes:
+      - ./src/config:/risingwave/config
+    depends_on:
+      - metanode
   frontend:
     container_name: frontend_container
     image: ghcr.io/singularity-data/risingwave:latest
