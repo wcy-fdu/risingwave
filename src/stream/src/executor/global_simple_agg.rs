@@ -196,7 +196,8 @@ impl<S: StateStore> SimpleAggExecutor<S> {
         let mut write_batch = store.start_write_batch();
         for state in &mut states.managed_states {
             state
-                .flush(&mut write_batch)
+                .flush(&mut write_batch, epoch)
+                .await
                 .map_err(StreamExecutorError::agg_state_error)?;
         }
         write_batch

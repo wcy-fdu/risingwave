@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::any::Any;
+use std::sync::Arc;
 
 pub use agg_call::*;
 pub use agg_state::*;
@@ -26,15 +27,18 @@ use risingwave_common::array::{
     F64Array, I16Array, I32Array, I64Array, Row, Utf8Array,
 };
 use risingwave_common::buffer::Bitmap;
-use risingwave_common::catalog::{Field, Schema};
+use risingwave_common::catalog::{ColumnDesc, ColumnId, Field, Schema};
 use risingwave_common::error::{ErrorCode, Result};
 use risingwave_common::hash::HashCode;
 use risingwave_common::types::{DataType, Datum};
+use risingwave_common::util::sort_util::OrderType;
 use risingwave_expr::expr::AggKind;
 use risingwave_expr::*;
+use risingwave_storage::table::state_table::StateTable;
 use risingwave_storage::{Keyspace, StateStore};
 pub use row_count::*;
 use static_assertions::const_assert_eq;
+use tokio::sync::Mutex;
 
 use crate::executor::aggregation::single_value::StreamingSingleValueAgg;
 use crate::executor::error::{StreamExecutorError, StreamExecutorResult};
@@ -356,6 +360,14 @@ pub async fn generate_managed_agg_state<S: StateStore>(
             keyspace.clone()
         };
 
+        let state_table = Arc::new(Mutex::new(StateTable::new(
+            keyspace.clone(),
+            vec![ColumnDesc::unnamed(
+                ColumnId::new(0),
+                agg_call.return_type.clone(),
+            )],
+            vec![OrderType::Descending; key.map_or(0, |row| row.size())],
+        )));
         let mut managed_state = ManagedStateImpl::create_managed_state(
             agg_call.clone(),
             keyspace,
@@ -363,6 +375,8 @@ pub async fn generate_managed_agg_state<S: StateStore>(
             pk_data_types.clone(),
             idx == ROW_COUNT_COLUMN,
             key_hash_code.clone(),
+            key,
+            state_table,
         )
         .await
         .map_err(StreamExecutorError::agg_state_error)?;

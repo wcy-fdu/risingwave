@@ -14,16 +14,20 @@
 
 //! Aggregators with state store support
 
+use std::sync::Arc;
+
 pub use extreme::*;
 use risingwave_common::array::stream_chunk::Ops;
-use risingwave_common::array::ArrayImpl;
+use risingwave_common::array::{ArrayImpl, Row};
 use risingwave_common::buffer::Bitmap;
 use risingwave_common::error::{ErrorCode, Result};
 use risingwave_common::hash::HashCode;
 use risingwave_common::types::Datum;
 use risingwave_expr::expr::AggKind;
+use risingwave_storage::table::state_table::StateTable;
 use risingwave_storage::write_batch::WriteBatch;
 use risingwave_storage::{Keyspace, StateStore};
+use tokio::sync::Mutex;
 pub use value::*;
 
 use crate::executor::aggregation::AggCall;
@@ -91,14 +95,15 @@ impl<S: StateStore> ManagedStateImpl<S> {
     }
 
     /// Flush the internal state to a write batch.
-    pub fn flush(&mut self, write_batch: &mut WriteBatch<S>) -> Result<()> {
+    pub async fn flush(&mut self, write_batch: &mut WriteBatch<S>, epoch: u64) -> Result<()> {
         match self {
-            Self::Value(state) => state.flush(write_batch),
+            Self::Value(state) => state.flush(write_batch, epoch).await,
             Self::Table(state) => state.flush(write_batch),
         }
     }
 
     /// Create a managed state from `agg_call`.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_managed_state(
         agg_call: AggCall,
         keyspace: Keyspace<S>,
@@ -106,6 +111,8 @@ impl<S: StateStore> ManagedStateImpl<S> {
         pk_data_types: PkDataTypes,
         is_row_count: bool,
         key_hash_code: Option<HashCode>,
+        pk: Option<&Row>,
+        state_table: Arc<Mutex<StateTable<S>>>,
     ) -> Result<Self> {
         match agg_call.kind {
             AggKind::Max | AggKind::Min => {
@@ -117,7 +124,7 @@ impl<S: StateStore> ManagedStateImpl<S> {
                 // optimization: use single-value state for append-only min/max
                 if agg_call.append_only {
                     Ok(Self::Value(
-                        ManagedValueState::new(agg_call, keyspace, row_count).await?,
+                        ManagedValueState::new(agg_call, row_count, pk, state_table).await?,
                     ))
                 } else {
                     Ok(Self::Table(
@@ -151,17 +158,17 @@ impl<S: StateStore> ManagedStateImpl<S> {
                     "should set row_count for value states other than AggKind::RowCount"
                 );
                 Ok(Self::Value(
-                    ManagedValueState::new(agg_call, keyspace, row_count).await?,
+                    ManagedValueState::new(agg_call, row_count, pk, state_table).await?,
                 ))
             }
             AggKind::RowCount => {
                 assert!(is_row_count);
                 Ok(Self::Value(
-                    ManagedValueState::new(agg_call, keyspace, row_count).await?,
+                    ManagedValueState::new(agg_call, row_count, pk, state_table).await?,
                 ))
             }
             AggKind::SingleValue => Ok(Self::Value(
-                ManagedValueState::new(agg_call, keyspace, row_count).await?,
+                ManagedValueState::new(agg_call, row_count, pk, state_table).await?,
             )),
         }
     }

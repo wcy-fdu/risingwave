@@ -317,7 +317,8 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
                     dirty_cnt += 1;
                     for state in &mut states.as_mut().unwrap().managed_states {
                         state
-                            .flush(&mut write_batch)
+                            .flush(&mut write_batch, epoch)
+                            .await
                             .map_err(StreamExecutorError::agg_state_error)?;
                     }
                 }
